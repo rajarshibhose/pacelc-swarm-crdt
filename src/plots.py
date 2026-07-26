@@ -92,10 +92,10 @@ def save_current_figure(stem: str) -> None:
 def plot_fig1_partition_availability(summary: pd.DataFrame) -> None:
     """
     Figure 1:
-    Availability under partition.
+    Immediate availability for proposals issued during the partition epoch.
 
-    Raft is evaluated using commit availability.
-    Gossip and CRDT are evaluated using local actuation availability.
+    For Raft, this is immediate commit availability for the sampled epoch.
+    For Gossip and CRDT, this is local actuation availability for the sampled epoch.
     """
     df = summary[summary["experiment"] == "E1_partition_progress"].copy()
 
@@ -103,14 +103,13 @@ def plot_fig1_partition_availability(summary: pd.DataFrame) -> None:
         print("Skipping Fig. 1: no E1 data")
         return
 
-    def selected_availability(row: pd.Series) -> float:
-        if row["protocol"] == "Raft":
-            return row["commit_availability"]
-        return row["actuation_availability"]
+    metric = "epoch_partition_progress_availability"
 
-    df["availability"] = df.apply(selected_availability, axis=1)
+    if metric not in df.columns:
+        print(f"Skipping Fig. 1: missing {metric}")
+        return
 
-    agg = median_iqr(df, ["protocol"], "availability")
+    agg = median_iqr(df, ["protocol"], metric)
     protocols = ordered_protocols(agg["protocol"].tolist())
     agg = agg.set_index("protocol").loc[protocols].reset_index()
 
@@ -127,14 +126,14 @@ def plot_fig1_partition_availability(summary: pd.DataFrame) -> None:
     )
 
     ax.set_ylim(0, 1.05)
-    ax.set_ylabel("Availability")
+    ax.set_ylabel("Partition-window availability")
     ax.set_xlabel("Protocol")
-    ax.set_title("Availability under no-majority partition")
+    ax.set_title("Immediate availability during partition")
 
     ax.text(
         0.5,
         -0.24,
-        "Raft reports commit availability; Gossip and CRDT report local actuation availability.",
+        "Raft reports immediate commit availability; Gossip and CRDT report local actuation availability.",
         transform=ax.transAxes,
         ha="center",
         va="top",
