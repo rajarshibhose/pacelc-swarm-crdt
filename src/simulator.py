@@ -3,7 +3,7 @@ from __future__ import annotations
 import heapq
 import random
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from .model import Action, Epoch, Message, Proposal
 from .network import Network
@@ -67,6 +67,12 @@ class Simulator:
         self.bytes_sent = 0
         self.first_proposal_time_by_epoch: Dict[Epoch, int] = {}
 
+        # Per-event logs used for epoch-specific availability metrics.
+        self.proposal_events: List[Dict[str, Any]] = []
+        self.blocked_events: List[Dict[str, Any]] = []
+        self.commit_events: List[Dict[str, Any]] = []
+        self.actuation_events: List[Dict[str, Any]] = []
+
     def schedule(self, delay_ms: int, callback: Callable) -> None:
         self.schedule_at(self.now_ms + max(0, delay_ms), callback)
 
@@ -79,7 +85,7 @@ class Simulator:
         src: int,
         dst: int,
         kind: str,
-        payload,
+        payload: Any,
         size_bytes: int,
         protocol_name: str,
     ) -> None:
@@ -120,6 +126,15 @@ class Simulator:
         propose_time: int,
     ) -> None:
         self.blocked_total += 1
+        self.blocked_events.append(
+            {
+                "time_ms": self.now_ms,
+                "propose_time_ms": propose_time,
+                "robot": robot,
+                "epoch": epoch,
+                "protocol": protocol_name,
+            }
+        )
 
     def record_commit(
         self,
@@ -130,6 +145,16 @@ class Simulator:
         commit_time: int,
     ) -> None:
         self.commit_latencies.append(commit_time - propose_time)
+        self.commit_events.append(
+            {
+                "time_ms": commit_time,
+                "propose_time_ms": propose_time,
+                "robot": robot,
+                "epoch": epoch,
+                "protocol": protocol_name,
+                "latency_ms": commit_time - propose_time,
+            }
+        )
 
     def record_actuation(
         self,
@@ -140,10 +165,29 @@ class Simulator:
         actuation_time: int,
     ) -> None:
         self.actuation_latencies.append(actuation_time - propose_time)
+        self.actuation_events.append(
+            {
+                "time_ms": actuation_time,
+                "propose_time_ms": propose_time,
+                "robot": robot,
+                "epoch": epoch,
+                "protocol": protocol_name,
+                "latency_ms": actuation_time - propose_time,
+            }
+        )
 
     def schedule_proposal(self, proposal: Proposal) -> None:
         def do_propose() -> None:
             self.proposals_total += 1
+
+            self.proposal_events.append(
+                {
+                    "time_ms": proposal.time_ms,
+                    "robot": proposal.robot,
+                    "epoch": proposal.epoch,
+                    "action": proposal.action,
+                }
+            )
 
             existing = self.first_proposal_time_by_epoch.get(proposal.epoch)
             if existing is None or proposal.time_ms < existing:
@@ -250,7 +294,7 @@ class Simulator:
         self,
         experiment: str,
         epoch: Epoch,
-    ) -> Dict[str, float | int | str]:
+    ) -> Dict[str, Any]:
         return {
             "experiment": experiment,
             "protocol": self.protocol_cls.name,
@@ -268,7 +312,69 @@ class Simulator:
             "active_state_items_mean": self.active_state_items_mean(),
         }
 
-    def summary(self, epoch: Epoch = 1) -> Dict[str, float | int | str]:
+    def epoch_availability_metrics(self, epoch: Epoch) -> Dict[str, Any]:
+        epoch_proposals = [
+            e for e in self.proposal_events
+            if e["epoch"] == epoch
+        ]
+
+        epoch_blocked = [
+            e for e in self.blocked_events
+            if e["epoch"] == epoch
+        ]
+
+        epoch_commits = [
+            e for e in self.commit_events
+            if e["epoch"] == epoch
+        ]
+
+        epoch_actuations = [
+            e for e in self.actuation_events
+            if e["epoch"] == epoch
+        ]
+
+        proposal_count = len(epoch_proposals)
+
+        if proposal_count == 0:
+            return {
+                "epoch_proposal_count": 0,
+                "epoch_blocked_count": 0,
+                "epoch_commit_count": 0,
+                "epoch_actuation_count": 0,
+                "epoch_blocked_fraction": float("nan"),
+                "epoch_immediate_commit_availability": float("nan"),
+                "epoch_eventual_commit_availability": float("nan"),
+                "epoch_actuation_availability": float("nan"),
+                "epoch_partition_progress_availability": float("nan"),
+            }
+
+        blocked_count = len(epoch_blocked)
+        commit_count = len(epoch_commits)
+        actuation_count = len(epoch_actuations)
+
+        blocked_fraction = blocked_count / proposal_count
+        immediate_commit_availability = 1.0 - blocked_fraction
+        eventual_commit_availability = commit_count / proposal_count
+        actuation_availability = actuation_count / proposal_count
+
+        if self.protocol_cls.name == "Raft":
+            partition_progress_availability = immediate_commit_availability
+        else:
+            partition_progress_availability = actuation_availability
+
+        return {
+            "epoch_proposal_count": proposal_count,
+            "epoch_blocked_count": blocked_count,
+            "epoch_commit_count": commit_count,
+            "epoch_actuation_count": actuation_count,
+            "epoch_blocked_fraction": blocked_fraction,
+            "epoch_immediate_commit_availability": immediate_commit_availability,
+            "epoch_eventual_commit_availability": eventual_commit_availability,
+            "epoch_actuation_availability": actuation_availability,
+            "epoch_partition_progress_availability": partition_progress_availability,
+        }
+
+    def summary(self, epoch: Epoch = 1) -> Dict[str, Any]:
         protocol = self.protocol_cls.name
 
         actuation_availability = (
@@ -279,6 +385,12 @@ class Simulator:
 
         commit_availability = (
             len(self.commit_latencies) / self.proposals_total
+            if self.proposals_total and protocol == "Raft"
+            else float("nan")
+        )
+
+        immediate_commit_availability = (
+            1.0 - (self.blocked_total / self.proposals_total)
             if self.proposals_total and protocol == "Raft"
             else float("nan")
         )
@@ -295,13 +407,14 @@ class Simulator:
             else float("nan")
         )
 
-        return {
+        result: Dict[str, Any] = {
             "protocol": protocol,
             "seed": self.seed,
             "n": self.n,
             "proposals": self.proposals_total,
             "blocked": self.blocked_total,
             "commit_availability": commit_availability,
+            "immediate_commit_availability": immediate_commit_availability,
             "actuation_availability": actuation_availability,
             "mean_L_act_ms": mean_lact,
             "mean_L_commit_ms": mean_lcommit,
@@ -314,3 +427,7 @@ class Simulator:
             "bytes_sent": self.bytes_sent,
             "active_state_items_mean": self.active_state_items_mean(),
         }
+
+        # Important: expose epoch-specific availability metrics to summary.csv.
+        result.update(self.epoch_availability_metrics(epoch))
+        return result

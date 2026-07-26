@@ -39,6 +39,7 @@ class RaftIntent(ProtocolBase):
     This is a leader-and-quorum abstraction of Raft:
     - all proposals are routed to a single leader
     - a proposal commits only if the leader can reach a majority
+    - if a proposal is blocked during a partition, it is retried after reconnect
     - local actuation happens only after commit
     - committed epoch decisions follow one shared global order
     """
@@ -51,23 +52,47 @@ class RaftIntent(ProtocolBase):
 
     def propose(self, epoch: Epoch, action: Action) -> None:
         start = self.sim.now_ms
+        self._attempt_commit(
+            epoch=epoch,
+            action=action,
+            original_propose_time=start,
+            count_blocked=True,
+        )
+
+    def _attempt_commit(
+        self,
+        epoch: Epoch,
+        action: Action,
+        original_propose_time: int,
+        count_blocked: bool,
+    ) -> None:
         leader = self.sim.raft_leader
+        now = self.sim.now_ms
 
-        # Client must be able to reach the leader.
-        if self.robot_id != leader and not self.sim.network.connected(
-            self.robot_id,
-            leader,
-            self.sim.now_ms,
-        ):
-            self.sim.record_blocked(self.name, self.robot_id, epoch, start)
+        client_can_reach_leader = (
+            self.robot_id == leader
+            or self.sim.network.connected(self.robot_id, leader, now)
+        )
+
+        leader_has_majority = self.sim.network.has_majority(leader, now)
+
+        if not client_can_reach_leader or not leader_has_majority:
+            if count_blocked:
+                self.sim.record_blocked(
+                    self.name,
+                    self.robot_id,
+                    epoch,
+                    original_propose_time,
+                )
+
+            self._schedule_retry(
+                epoch=epoch,
+                action=action,
+                original_propose_time=original_propose_time,
+            )
             return
 
-        # Leader must be able to reach a majority.
-        if not self.sim.network.has_majority(leader, self.sim.now_ms):
-            self.sim.record_blocked(self.name, self.robot_id, epoch, start)
-            return
-
-        peers = self.sim.network.peers(leader, self.sim.now_ms)
+        peers = self.sim.network.peers(leader, now)
         majority = self.sim.n // 2 + 1
         quorum_followers_needed = max(0, majority - 1)
         quorum_followers = peers[:quorum_followers_needed]
@@ -88,8 +113,8 @@ class RaftIntent(ProtocolBase):
             self.sim.raft_commit_index += 1
             self.sim.raft_committed[epoch] = action
 
-            # Expose the committed value to all robots currently reachable
-            # from the leader. Outside partition, this becomes swarm-wide.
+            # Expose committed value to robots reachable from the leader at
+            # commit time. After reconnect, this becomes swarm-wide.
             visible_to = [leader] + self.sim.network.peers(leader, self.sim.now_ms)
 
             for robot_id in visible_to:
@@ -101,18 +126,44 @@ class RaftIntent(ProtocolBase):
                 self.name,
                 self.robot_id,
                 epoch,
-                start,
+                original_propose_time,
                 self.sim.now_ms,
             )
             self.sim.record_actuation(
                 self.name,
                 self.robot_id,
                 epoch,
-                start,
+                original_propose_time,
                 self.sim.now_ms,
             )
 
         self.sim.schedule(commit_delay, commit)
+
+    def _schedule_retry(
+        self,
+        epoch: Epoch,
+        action: Action,
+        original_propose_time: int,
+    ) -> None:
+        partition_end = self.sim.network.partition_end_ms
+
+        if partition_end is not None and self.sim.now_ms < partition_end:
+            retry_time = partition_end + self.sim.network.sample_delay_ms()
+        else:
+            retry_time = self.sim.now_ms + 1000
+
+        if retry_time > self.sim.duration_ms:
+            return
+
+        def retry() -> None:
+            self._attempt_commit(
+                epoch=epoch,
+                action=action,
+                original_propose_time=original_propose_time,
+                count_blocked=False,
+            )
+
+        self.sim.schedule_at(retry_time, retry)
 
     def on_message(self, msg: Message) -> None:
         # Raft v0.1 uses an abstract leader/quorum commit model.
@@ -123,6 +174,7 @@ class RaftIntent(ProtocolBase):
 
     def active_state_items(self) -> int:
         return len(self.committed)
+    
 
 class GossipOverwrite(ProtocolBase):
     """

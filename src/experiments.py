@@ -485,6 +485,9 @@ def run_all(seed_count: int = 3, quick: bool = True) -> None:
     cols = [
         "actuation_availability",
         "commit_availability",
+        "immediate_commit_availability",
+        "epoch_partition_progress_availability",
+        "epoch_blocked_fraction",
         "mean_L_act_ms",
         "mean_L_commit_ms",
         "L_conv_ms",
