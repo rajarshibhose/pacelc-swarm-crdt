@@ -79,7 +79,7 @@ def schedule_sampling(
 
         sim.schedule_at(t, make_callback(t))
 
-
+"""
 def first_time_at_agreement(
     rows: List[Dict],
     first_proposal_time_ms: int,
@@ -97,7 +97,26 @@ def first_time_at_agreement(
 
     return math.nan
 
+"""
 
+def first_time_at_agreement(
+    rows: List[Dict],
+    first_proposal_time_ms: int,
+    threshold: float = 0.95,
+    after_ms: int | None = None,
+) -> float:
+    start = first_proposal_time_ms if after_ms is None else after_ms
+
+    ordered = sorted(rows, key=lambda r: r["time_ms"])
+    for row in ordered:
+        if row["time_ms"] < start:
+            continue
+        if row["convergence_fraction"] >= threshold:
+            return float(row["time_ms"] - first_proposal_time_ms)
+
+    return math.nan
+
+"""    
 def first_healing_time_after(
     rows: List[Dict],
     partition_end_ms: int,
@@ -108,6 +127,22 @@ def first_healing_time_after(
         if row["time_ms"] < partition_end_ms:
             continue
         if row["agreement_fraction"] >= threshold:
+            return float(row["time_ms"] - partition_end_ms)
+
+    return math.nan
+
+"""
+
+def first_healing_time_after(
+    rows: List[Dict],
+    partition_end_ms: int,
+    threshold: float = 0.95,
+) -> float:
+    ordered = sorted(rows, key=lambda r: r["time_ms"])
+    for row in ordered:
+        if row["time_ms"] < partition_end_ms:
+            continue
+        if row["convergence_fraction"] >= threshold:
             return float(row["time_ms"] - partition_end_ms)
 
     return math.nan
@@ -171,6 +206,7 @@ def run_one(
     summary = sim.summary(epoch=sample_epoch)
     first_proposal_time = sim.first_proposal_time_by_epoch.get(sample_epoch, 0)
 
+    """
     summary.update(
         {
             "experiment": experiment,
@@ -201,6 +237,46 @@ def run_one(
             **extra,
         }
     )
+    """
+
+    delta_values = [
+        float(r["delta_decision"])
+        for r in time_rows
+        if r["delta_decision"] == r["delta_decision"]  # exclude NaN
+    ]
+
+    summary.update(
+        {
+            "experiment": experiment,
+            "packet_loss": packet_loss,
+            "gossip_period_ms": gossip_period_ms,
+            "gossip_fanout": gossip_fanout,
+            "partition_start_ms": partition_start_ms,
+            "partition_end_ms": partition_end_ms,
+            "sample_epoch": sample_epoch,
+            "L_conv_ms": first_time_at_agreement(
+                time_rows,
+                first_proposal_time_ms=first_proposal_time,
+                threshold=0.95,
+            ),
+            "max_delta_decision": max(delta_values) if delta_values else math.nan,
+            "mean_delta_decision": (
+                sum(delta_values) / len(delta_values)
+                if delta_values
+                else math.nan
+            ),
+            "max_unresolved_fraction": max(
+                (r["unresolved_fraction"] for r in time_rows),
+                default=math.nan,
+            ),
+            "max_active_state_items_mean": max(
+                (r["active_state_items_mean"] for r in time_rows),
+                default=math.nan,
+            ),
+            **extra,
+        }
+    )
+
 
     if partition_end_ms is not None:
         summary["healing_ms_after_partition"] = first_healing_time_after(
@@ -390,6 +466,8 @@ def run_all(seed_count: int = 3, quick: bool = True) -> None:
     print(f"Wrote {time_path} with {len(time_df)} rows")
 
     print("\nSummary by experiment/protocol:")
+
+    """
     cols = [
         "actuation_availability",
         "commit_availability",
@@ -397,6 +475,23 @@ def run_all(seed_count: int = 3, quick: bool = True) -> None:
         "mean_L_commit_ms",
         "L_conv_ms",
         "healing_ms_after_partition",
+        "delta_decision_final",
+        "messages_sent",
+        "bytes_sent",
+        "active_state_items_mean",
+    ]
+    """
+
+    cols = [
+        "actuation_availability",
+        "commit_availability",
+        "mean_L_act_ms",
+        "mean_L_commit_ms",
+        "L_conv_ms",
+        "healing_ms_after_partition",
+        "convergence_fraction_final",
+        "decided_fraction_final",
+        "unresolved_fraction_final",
         "delta_decision_final",
         "messages_sent",
         "bytes_sent",
