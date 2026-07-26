@@ -1,0 +1,88 @@
+{
+  "git_commit": "5f4f6f9",
+  "summary_rows": 1080,
+  "time_series_rows": 184680,
+  "experiments": [
+    "E1_partition_progress",
+    "E2_loss_vs_latency",
+    "E3_healing_after_reconnect",
+    "E4_scalability_overhead"
+  ],
+  "protocols": [
+    "CRDT",
+    "Gossip",
+    "Raft"
+  ],
+  "seed_count_by_experiment_protocol": [
+    {
+      "experiment": "E1_partition_progress",
+      "protocol": "CRDT",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E1_partition_progress",
+      "protocol": "Gossip",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E1_partition_progress",
+      "protocol": "Raft",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E2_loss_vs_latency",
+      "protocol": "CRDT",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E2_loss_vs_latency",
+      "protocol": "Gossip",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E2_loss_vs_latency",
+      "protocol": "Raft",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E3_healing_after_reconnect",
+      "protocol": "CRDT",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E3_healing_after_reconnect",
+      "protocol": "Gossip",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E3_healing_after_reconnect",
+      "protocol": "Raft",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E4_scalability_overhead",
+      "protocol": "CRDT",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E4_scalability_overhead",
+      "protocol": "Gossip",
+      "seed_count": 30
+    },
+    {
+      "experiment": "E4_scalability_overhead",
+      "protocol": "Raft",
+      "seed_count": 30
+    }
+  ],
+  "figures": [
+    "fig1_partition_availability.png",
+    "fig1_partition_availability.pdf",
+    "fig2_loss_latency.png",
+    "fig2_loss_latency.pdf",
+    "fig3_healing_after_reconnect.png",
+    "fig3_healing_after_reconnect.pdf",
+    "fig4_scalability_overhead.png",
+    "fig4_scalability_overhead.pdf"
+  ]
+}
