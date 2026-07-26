@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# Generated experiment data
+results/raw/*.csv
+results/raw/*.parquet
+results/raw/*.jsonl
+
+# Keep final paper figures trackable later
+!results/figures/.gitkeep
+!results/figures/*.png
+!results/figures/*.pdf
+
+# Logs
+*.log
