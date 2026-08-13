@@ -24,3 +24,7 @@ results/raw/*.jsonl
 
 # Logs
 *.log
+
+# Keep compact aggregated outputs for the anonymous artifact
+!results/raw/summary.csv
+!results/raw/time_series.csv
